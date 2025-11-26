@@ -51,7 +51,6 @@ def load_texture(filename):
                  0, GL_RGBA, GL_UNSIGNED_BYTE, img_data)
 
     return texture_id
-
 # --------------------------
 # Load textures
 # --------------------------
@@ -71,7 +70,7 @@ textures = {
     "Phobos": load_texture("phobos.jpg"),
     "Deimos": load_texture("deimos.jpg"),
     "Rocket": load_texture("rocket.png"),
-    "Metal": load_texture("metal_texture.jpg"),
+    "Metal": load_texture("metal_texture.jpg"), # Using phobos texture as a metallic-looking fallback
     "BlackHole": load_texture("black_hole.png"),
 }
 
@@ -108,49 +107,52 @@ def draw_orbit(radius):
 # --------------------------
 # Draw a 3D rocket model
 # --------------------------
-def draw_3d_rocket(size):
+def draw_3d_rocket(size, thrust_level):
     quad = gluNewQuadric()
-    gluQuadricTexture(quad, True) # Enable texturing for the rocket parts
+    gluQuadricTexture(quad, True)
 
-    glBindTexture(GL_TEXTURE_2D, textures["Metal"])
-    glColor3f(1.0, 1.0, 1.0) # Use white color to not tint the texture
+    # --- Draw the main body with back-face culling temporarily disabled ---
+    glCullFace(GL_FRONT) # Tell OpenGL to cull front-facing polygons
 
     # --- Main Body (First Stage) ---
+    glBindTexture(GL_TEXTURE_2D, textures["Metal"])
+    glColor3f(1.0, 1.0, 1.0)
     body_height = size * 0.7
     body_radius = size / 5.0
     gluCylinder(quad, body_radius, body_radius, body_height, 20, 5)
-    # Add a cap to the top of the first stage
-    glPushMatrix()
-    glTranslatef(0, 0, body_height)
-    gluDisk(quad, 0, body_radius, 20, 1)
-    glPopMatrix()
+
+    # --- Restore normal culling for the rest of the model ---
+    glCullFace(GL_BACK)
+
+    # Bottom cap
+    gluDisk(quad, 0, body_radius, 20, 1) # This will now be visible at the base
 
     # --- Second Stage ---
     glPushMatrix()
+    # Use the generic metal texture for other parts
+    glBindTexture(GL_TEXTURE_2D, textures["Metal"])
     glTranslatef(0, 0, body_height)
     stage2_height = size * 0.5
     stage2_radius = body_radius * 0.7
-    gluCylinder(quad, stage2_radius, stage2_radius, stage2_height, 20, 5)
-    # Add a cap to the top of the second stage
-    gluDisk(quad, 0, stage2_radius, 20, 1)
+    gluCylinder(quad, body_radius, stage2_radius, stage2_height * 0.2, 20, 5) # Tapered connector
+    glTranslatef(0, 0, stage2_height * 0.2)
+    gluCylinder(quad, stage2_radius, stage2_radius, stage2_height, 20, 5) # Main second stage
     glPopMatrix()
 
     # --- Nose Cone ---
-    glColor3f(0.9, 0.2, 0.2) # Red nose cone
     glPushMatrix()
-    glTranslatef(0, 0, body_height + stage2_height) # Position at the top of the second stage
+    glTranslatef(0, 0, body_height + stage2_height * 1.2)
     cone_height = size / 2.0
-    gluCylinder(quad, stage2_radius, 0.0, cone_height, 20, 5) # Cone is a cylinder with top radius 0
+    gluCylinder(quad, stage2_radius, 0.0, cone_height, 20, 5)
     glPopMatrix()
 
     # --- Fins (3 fins, 120 degrees apart) ---
     glBindTexture(GL_TEXTURE_2D, textures["Metal"])
-    glColor3f(1.0, 1.0, 1.0)
     fin_height = size / 2.0
     fin_width = size / 3.0
     for i in range(3):
         glPushMatrix()
-        glRotatef(i * 120, 0, 0, 1) # Rotate around the Z-axis (rocket's length)
+        glRotatef(i * 120, 0, 0, 1)
         glBegin(GL_QUADS)
         glTexCoord2f(0, 0); glVertex3f(body_radius, 0, 0)
         glTexCoord2f(1, 0); glVertex3f(body_radius + fin_width, 0, fin_height * 0.2)
@@ -160,11 +162,24 @@ def draw_3d_rocket(size):
         glPopMatrix()
 
     # --- Engine Bell ---
-    glColor3f(0.4, 0.4, 0.4) # Dark metallic color for engine
     glPushMatrix()
-    glTranslatef(0, 0, -size * 0.1) # Position slightly behind the body
+    glColor3f(0.4, 0.4, 0.4)
+    glTranslatef(0, 0, -size * 0.1)
     gluCylinder(quad, body_radius * 0.8, body_radius * 0.5, size * 0.2, 20, 5)
     glPopMatrix()
+
+    # --- Dynamic Flame Effect ---
+    if thrust_level > 0:
+        glDisable(GL_TEXTURE_2D)
+        glPushMatrix()
+        glTranslatef(0, 0, -size * 0.1) # Position at the engine nozzle
+        glRotatef(180, 0, 1, 0) # Rotate to point the flame backwards
+        flame_length = thrust_level * size * 0.02 + random.uniform(-0.1, 0.1) * size
+        flame_radius = body_radius * 0.6 * (1.0 + random.uniform(-0.1, 0.1))
+        glColor3f(1.0, 0.8, 0.2) # Fiery orange-yellow
+        gluCylinder(quad, flame_radius, 0, flame_length, 12, 1)
+        glEnable(GL_TEXTURE_2D)
+        glPopMatrix()
 
 # --------------------------
 # Draw a 3D UFO model
@@ -662,8 +677,7 @@ while True:
         glRotatef(yaw, 0, 1, 0)
         glRotatef(pitch, 1, 0, 0)
 
-        glDisable(GL_TEXTURE_2D) # Our simple model is not textured
-        draw_3d_rocket(rocket_3d.size)
+        draw_3d_rocket(rocket_3d.size, rocket_3d.thrust)
         glEnable(GL_TEXTURE_2D)
         glPopMatrix()
 
